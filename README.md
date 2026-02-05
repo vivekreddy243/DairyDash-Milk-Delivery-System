@@ -1,25 +1,27 @@
 # DairyDash 🥛
 
-DairyDash is a real-time milk delivery and daily ledger system for small dairy shops in India.
+DairyDash is a real-time milk delivery and daily ledger management system for gated apartment communities in India.
 
-## Why this project?
+## Problem
 
-Many milk vendors still use notebooks or WhatsApp to track daily milk delivery and payments. This causes confusion, errors, and no transparency for customers.
+Small dairy vendors still rely on notebooks or WhatsApp messages to track daily milk delivery and monthly payments. This leads to errors, confusion, and lack of transparency for customers.
 
-## What DairyDash does
+## Solution
 
-- Admin (milk shop) updates daily milk delivery
-- Customers can see daily delivery status
-- Monthly bill is calculated automatically
-- Designed for gated apartment communities
+DairyDash provides a simple web-based platform where:
 
-## Tech Stack (Learning Version)
+- Admin (milk shop owner) updates daily milk delivery
+- Customers can view daily delivery status
+- Monthly bills are calculated automatically
+- Designed specifically for apartment-based subscriptions
+
+## Tech Stack (MVP)
 
 - Frontend: Next.js (React + TypeScript)
 - Backend: FastAPI (Python)
 - Database: SQLite
 - Real-time updates: Server-Sent Events (SSE)
 
-## Status
+## Project Status
 
-🚧 Project setup in progress
+🚧 Initial setup completed. Development in progress.
