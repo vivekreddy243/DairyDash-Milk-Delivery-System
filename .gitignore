@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment (VERY IMPORTANT)
+venv/
+backend/venv/
+
+# SQLite DB (optional later, keep for now)
+*.db
+
+# VS Code
+.vscode/
