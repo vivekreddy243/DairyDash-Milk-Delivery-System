@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date
 from .database import Base   # ← DOT IS IMPORTANT
+from datetime import date
 
 class Apartment(Base):
     __tablename__ = "apartments"
@@ -33,5 +34,19 @@ class Subscription(Base):
     milk_type = Column(String, default="Cow")
     default_qty = Column(Float)          # e.g., 1.0
     price_per_liter = Column(Float)      # e.g., 60.0
+
+
+class DailyDelivery(Base):
+    __tablename__ = "daily_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    customer_id = Column(Integer, ForeignKey("customers.id"), index=True)
+
+    delivery_date = Column(Date, default=date.today, index=True)
+
+    quantity = Column(Float)   # actual delivered quantity
+    status = Column(String)    # Delivered / Skipped
+
 
 

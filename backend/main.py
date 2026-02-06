@@ -1,10 +1,12 @@
 from fastapi import FastAPI, Depends
-from .database import Base, engine, get_db
-from .models import Apartment, Customer, Subscription
-
 from sqlalchemy.orm import Session
+from datetime import date
+import calendar
+from typing import List
 
-
+from .schemas import ApartmentCreate, ApartmentOut
+from .database import Base, engine, get_db
+from .models import Apartment, Customer, Subscription, DailyDelivery
 
 app = FastAPI(title="DairyDash API")
 
@@ -15,18 +17,19 @@ def root():
     return {"message": "DairyDash backend is running"}
 
 
-@app.get("/apartments")
+@app.get("/apartments", response_model=List[ApartmentOut])
 def get_apartments(db: Session = Depends(get_db)):
     return db.query(Apartment).all()
 
 
-@app.post("/apartments")
-def create_apartment(name: str, db: Session = Depends(get_db)):
-    apartment = Apartment(name=name)
+@app.post("/apartments", response_model=ApartmentOut)
+def create_apartment(payload: ApartmentCreate, db: Session = Depends(get_db)):
+    apartment = Apartment(name=payload.name)
     db.add(apartment)
     db.commit()
     db.refresh(apartment)
     return apartment
+
 
 @app.post("/customers")
 def create_customer(
@@ -96,3 +99,185 @@ def get_subscription(customer_id: int, db: Session = Depends(get_db)):
     if not sub:
         return {"message": "No subscription found for this customer"}
     return sub
+
+@app.post("/deliveries")
+def create_delivery(
+    customer_id: int,
+    delivery_date: date | None = None,
+    quantity: float | None = None,
+    status: str = "Delivered",
+    db: Session = Depends(get_db),
+):
+    if delivery_date is None:
+        delivery_date = date.today()
+
+    subscription = (
+        db.query(Subscription)
+        .filter(Subscription.customer_id == customer_id)
+        .first()
+    )
+
+    if not subscription:
+        return {"error": "No subscription found for customer"}
+
+    if quantity is None:
+        quantity = subscription.default_qty
+
+    delivery = DailyDelivery(
+        customer_id=customer_id,
+        delivery_date=delivery_date,
+        quantity=quantity,
+        status=status,
+    )
+
+    db.add(delivery)
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
+@app.get("/deliveries")
+def get_deliveries(
+    delivery_date: date | None = None,
+    customer_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(DailyDelivery)
+
+    if delivery_date is not None:
+        query = query.filter(DailyDelivery.delivery_date == delivery_date)
+
+    if customer_id is not None:
+        query = query.filter(DailyDelivery.customer_id == customer_id)
+
+    return query.all()
+
+
+
+@app.get("/billing/{customer_id}")
+def get_monthly_bill(customer_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    # basic input safety
+    if month < 1 or month > 12:
+        return {"error": "month must be between 1 and 12"}
+
+    # find subscription (price)
+    sub = db.query(Subscription).filter(Subscription.customer_id == customer_id).first()
+    if not sub:
+        return {"error": "No subscription found for customer"}
+
+    # start/end dates of the month
+    last_day = calendar.monthrange(year, month)[1]
+    start_date = date(year, month, 1)
+    end_date = date(year, month, last_day)
+
+    # get deliveries in this month
+    deliveries = (
+        db.query(DailyDelivery)
+        .filter(DailyDelivery.customer_id == customer_id)
+        .filter(DailyDelivery.delivery_date >= start_date)
+        .filter(DailyDelivery.delivery_date <= end_date)
+        .all()
+    )
+
+    total_liters = sum(d.quantity for d in deliveries if d.status == "Delivered")
+    total_amount = total_liters * sub.price_per_liter
+
+    return {
+        "customer_id": customer_id,
+        "year": year,
+        "month": month,
+        "price_per_liter": sub.price_per_liter,
+        "total_liters": total_liters,
+        "total_amount": total_amount,
+        "delivered_days": sum(1 for d in deliveries if d.status == "Delivered"),
+        "records_found": len(deliveries),
+    }
+
+
+
+@app.get("/billing/{customer_id}")
+def get_monthly_bill(customer_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    if month < 1 or month > 12:
+        return {"error": "month must be between 1 and 12"}
+
+    sub = db.query(Subscription).filter(Subscription.customer_id == customer_id).first()
+    if not sub:
+        return {"error": "No subscription found for customer"}
+
+    last_day = calendar.monthrange(year, month)[1]
+    start_date = date(year, month, 1)
+    end_date = date(year, month, last_day)
+
+    deliveries = (
+        db.query(DailyDelivery)
+        .filter(DailyDelivery.customer_id == customer_id)
+        .filter(DailyDelivery.delivery_date >= start_date)
+        .filter(DailyDelivery.delivery_date <= end_date)
+        .all()
+    )
+
+    delivered = [d for d in deliveries if d.status == "Delivered"]
+    total_liters = sum(d.quantity for d in delivered)
+    total_amount = total_liters * sub.price_per_liter
+
+    return {
+        "customer_id": customer_id,
+        "year": year,
+        "month": month,
+        "price_per_liter": sub.price_per_liter,
+        "total_liters": total_liters,
+        "total_amount": total_amount,
+        "delivered_days": len(delivered),
+        "records_found": len(deliveries),
+    }
+
+
+@app.get("/billing/apartment/{apartment_id}")
+def get_apartment_monthly_bill(apartment_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    if month < 1 or month > 12:
+        return {"error": "month must be between 1 and 12"}
+
+    last_day = calendar.monthrange(year, month)[1]
+    start_date = date(year, month, 1)
+    end_date = date(year, month, last_day)
+
+    customers = db.query(Customer).filter(Customer.apartment_id == apartment_id).all()
+
+    results = []
+    apartment_total = 0.0
+
+    for c in customers:
+        sub = db.query(Subscription).filter(Subscription.customer_id == c.id).first()
+        if not sub:
+            continue
+
+        deliveries = (
+            db.query(DailyDelivery)
+            .filter(DailyDelivery.customer_id == c.id)
+            .filter(DailyDelivery.delivery_date >= start_date)
+            .filter(DailyDelivery.delivery_date <= end_date)
+            .all()
+        )
+
+        delivered = [d for d in deliveries if d.status == "Delivered"]
+        liters = sum(d.quantity for d in delivered)
+        amount = liters * sub.price_per_liter
+
+        apartment_total += amount
+
+        results.append({
+            "customer_id": c.id,
+            "name": c.name,
+            "flat_no": c.flat_no,
+            "liters": liters,
+            "amount": amount,
+        })
+
+    return {
+        "apartment_id": apartment_id,
+        "year": year,
+        "month": month,
+        "customers": results,
+        "apartment_total": apartment_total,
+    }
+
