@@ -43,7 +43,7 @@ class DailyDelivery(Base):
 
     customer_id = Column(Integer, ForeignKey("customers.id"), index=True)
 
-    delivery_date = Column(Date, default=date.today, index=True)
+    delivery_date = Column(Date, default=date.today )
 
     quantity = Column(Float)   # actual delivered quantity
     status = Column(String)    # Delivered / Skipped

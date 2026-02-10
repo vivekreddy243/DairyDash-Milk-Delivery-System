@@ -4,11 +4,16 @@ from datetime import date
 import calendar
 from typing import List
 
+from .schemas import DeliveryCreate, DeliveryOut
 from .schemas import CustomerCreate, CustomerOut
 from .schemas import SubscriptionCreate, SubscriptionOut
 from .schemas import ApartmentCreate, ApartmentOut
+from .schemas import CustomerMonthlyBillOut, ApartmentMonthlyBillOut
+
 from .database import Base, engine, get_db
 from .models import Apartment, Customer, Subscription, DailyDelivery
+
+
 
 app = FastAPI(title="DairyDash API")
 
@@ -16,7 +21,11 @@ Base.metadata.create_all(bind=engine)
 
 @app.get("/")
 def root():
-    return {"message": "DairyDash backend is running"}
+    return {
+        "service": "DairyDash API",
+        "status": "running",
+        "version": "1.0.0"
+    }
 
 
 @app.get("/apartments", response_model=List[ApartmentOut])
@@ -67,63 +76,49 @@ def get_subscription(customer_id: int, db: Session = Depends(get_db)):
     return sub
 
 
-@app.post("/deliveries")
-def create_delivery(
-    customer_id: int,
-    delivery_date: date | None = None,
-    quantity: float | None = None,
-    status: str = "Delivered",
-    db: Session = Depends(get_db),
-):
-    if delivery_date is None:
-        delivery_date = date.today()
+@app.post("/deliveries", response_model=DeliveryOut)
+def create_delivery(payload: DeliveryCreate, db: Session = Depends(get_db)):
+    d = payload.model_dump()
 
-    subscription = (
-        db.query(Subscription)
-        .filter(Subscription.customer_id == customer_id)
-        .first()
-    )
+    # default date if not provided
+    if d["delivery_date"] is None:
+        d["delivery_date"] = date.today()
 
-    if not subscription:
-        return {"error": "No subscription found for customer"}
+    # default qty from subscription if not provided
+    if d["quantity"] is None:
+        sub = db.query(Subscription).filter(Subscription.customer_id == d["customer_id"]).first()
+        if not sub:
+            return {"error": "No subscription found for customer"}
+        d["quantity"] = sub.default_qty
 
-    if quantity is None:
-        quantity = subscription.default_qty
-
-    delivery = DailyDelivery(
-        customer_id=customer_id,
-        delivery_date=delivery_date,
-        quantity=quantity,
-        status=status,
-    )
-
+    delivery = DailyDelivery(**d)
     db.add(delivery)
     db.commit()
     db.refresh(delivery)
     return delivery
 
 
-@app.get("/deliveries")
+
+@app.get("/deliveries", response_model=List[DeliveryOut])
 def get_deliveries(
     delivery_date: date | None = None,
     customer_id: int | None = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(DailyDelivery)
+    q = db.query(DailyDelivery)
 
     if delivery_date is not None:
-        query = query.filter(DailyDelivery.delivery_date == delivery_date)
+        q = q.filter(DailyDelivery.delivery_date == delivery_date)
 
     if customer_id is not None:
-        query = query.filter(DailyDelivery.customer_id == customer_id)
+        q = q.filter(DailyDelivery.customer_id == customer_id)
 
-    return query.all()
-
-
+    return q.all()
 
 
-@app.get("/billing/{customer_id}")
-def get_customer_monthly_bill(customer_id: int, year: int, month: int, db: Session = Depends(get_db)):
+
+@app.get("/billing/{customer_id}", response_model=CustomerMonthlyBillOut)
+def get_monthly_bill(customer_id: int, year: int, month: int, db: Session = Depends(get_db)):
     if month < 1 or month > 12:
         return {"error": "month must be between 1 and 12"}
 
@@ -143,7 +138,10 @@ def get_customer_monthly_bill(customer_id: int, year: int, month: int, db: Sessi
         .all()
     )
 
+    # Separate delivered and skipped deliveries
     delivered = [d for d in deliveries if d.status == "Delivered"]
+    skipped = [d for d in deliveries if d.status == "Skipped"]
+
     total_liters = sum(d.quantity for d in delivered)
     total_amount = total_liters * sub.price_per_liter
 
@@ -155,11 +153,14 @@ def get_customer_monthly_bill(customer_id: int, year: int, month: int, db: Sessi
         "total_liters": total_liters,
         "total_amount": total_amount,
         "delivered_days": len(delivered),
+        "skipped_days": len(skipped),
         "records_found": len(deliveries),
     }
 
 
-@app.get("/billing/apartment/{apartment_id}")
+
+@app.get("/billing/apartment/{apartment_id}", response_model=ApartmentMonthlyBillOut)
+
 def get_apartment_monthly_bill(apartment_id: int, year: int, month: int, db: Session = Depends(get_db)):
     if month < 1 or month > 12:
         return {"error": "month must be between 1 and 12"}
